@@ -92,7 +92,7 @@ set -Ux VPS deploy@203.0.113.10
 
 In bash or zsh, put `export VPS=deploy@203.0.113.10` in the shell profile.
 
-On the VPS itself, `VPS` is not necessary. The recipes find out where they run from the env files: the real `env/*.env` files exist only on the VPS. There, `just publish-sifa`, `just vps-status` and `just vps-logs` run their command directly, without SSH. `just send` and `just ship` refuse to run there: they send the images of the build machine.
+On the VPS itself, `VPS` is not necessary. The recipes find out where they run from the env files: the real `env/*.env` files exist only on the VPS. There, `just publish-sifa`, `just vps-status` and `just vps-logs` run their command directly, without SSH. The recipes of the build machine (`init`, `pull`, `build`, `local-*`, `send`, `ship`) refuse to run there. To update this repository on the VPS, use `git pull --ff-only`: `just pull` updates the sources of the images, on the build machine.
 
 ### Each deploy
 
