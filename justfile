@@ -111,7 +111,7 @@ build *services: _build-machine
 
 # Build and start the stack locally, with Caddy on http://localhost:8080 [local]
 local-up: build
-    {{local}} up -d --wait --remove-orphans site next-site vps-back atkuzu caddy
+    {{local}} up -d --wait --remove-orphans site next-site vps-back atkuzu beszel caddy
 
 # Check the local stack through its Caddy [local]
 local-test: _build-machine
@@ -181,6 +181,37 @@ local-test: _build-machine
     else
         echo "skip  atkuzu dailies: run just local-daily first"
     fi
+    # Beszel: the hub answers, and the agent sends data to it.
+    if [ -f data/beszel/agent.env ]; then
+        if python3 -I - <<'PY'
+    import json, sys, time, urllib.request
+    hub = "http://127.0.0.1:8091"
+    values = dict(line.split("=", 1) for line in open("env/beszel.env.example") if "=" in line and not line.startswith("#"))
+    def call(method, path, body=None, token=None):
+        headers = {"Content-Type": "application/json", **({"Authorization": token} if token else {})}
+        data = json.dumps(body).encode() if body is not None else None
+        with urllib.request.urlopen(urllib.request.Request(hub + path, data=data, headers=headers, method=method), timeout=10) as r:
+            return json.load(r)
+    call("GET", "/api/health")
+    token = call("POST", "/api/collections/users/auth-with-password",
+                 {"identity": values["USER_EMAIL"].strip(), "password": values["USER_PASSWORD"].strip()})["token"]
+    for _ in range(30):
+        systems = call("GET", "/api/collections/systems/records", token=token)["items"]
+        if any(s["status"] == "up" for s in systems):
+            sys.exit(0)
+        time.sleep(2)
+    print("  systems:", [(s["name"], s["status"]) for s in systems])
+    sys.exit(1)
+    PY
+        then
+            echo "ok    beszel: the hub answers, and the agent is up"
+        else
+            echo "FAIL  beszel: no agent is up in the hub"
+            failed=$((failed + 1))
+        fi
+    else
+        echo "skip  beszel agent: run just local-beszel first"
+    fi
     if [ "$failed" -gt 0 ]; then
         echo "$failed check(s) failed"
         exit 1
@@ -194,6 +225,11 @@ local-sifa: _build-machine
 local-daily: _build-machine
     mkdir -p data/atkuzu/daily
     {{local}} run --rm atkuzu-daily
+
+# Connect the local Beszel agent to the local hub, then start it [local]
+local-beszel: _build-machine
+    bash scripts/beszel-setup.sh http://127.0.0.1:8091 env/beszel.env.example
+    {{local}} up -d --wait beszel-agent
 
 # Show the logs of the local stack [local]
 local-logs *services: _build-machine
@@ -239,6 +275,15 @@ publish-sifa: _need-vps
 # Write the missing dailies of atkuzu into data/atkuzu/daily on the VPS [local or vps]
 publish-daily: _need-vps
     {{on_stack}} 'cd {{stack_dir}} && docker compose run --rm atkuzu-daily'
+
+# Connect the Beszel agent to the hub on the VPS, then start it [local or vps]
+beszel-setup: _need-vps
+    {{on_stack}} 'cd {{stack_dir}} && bash scripts/beszel-setup.sh http://127.0.0.1:8090 env/beszel.env && docker compose up -d --wait beszel-agent'
+
+# Open the Beszel hub of the VPS on http://localhost:8090, through an SSH tunnel [local]
+beszel-tunnel: _build-machine _need-vps
+    @echo "Beszel: http://localhost:8090 (Ctrl+C closes the tunnel)"
+    ssh -N -L 8090:127.0.0.1:8090 {{vps}}
 
 # Show the services on the VPS [local or vps]
 vps-status: _need-vps

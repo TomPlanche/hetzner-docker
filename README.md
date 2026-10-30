@@ -1,6 +1,6 @@
 # hetzner-docker
 
-A Docker Compose stack for a small VPS: a Rust API, a SvelteKit site in 2 versions (2 branches of the same repository), a Takuzu game with a daily puzzle, and a static page that a job rebuilds. The images are built and tested on a local machine, then sent to the VPS over SSH: the VPS needs no compiler and no source code. Caddy runs on the host, in front of the containers.
+A Docker Compose stack for a small VPS: a Rust API, a SvelteKit site in 2 versions (2 branches of the same repository), a Takuzu game with a daily puzzle, a static page that a job rebuilds, and a resource dashboard (Beszel). The images are built and tested on a local machine, then sent to the VPS over SSH: the VPS needs no compiler and no source code. Caddy runs on the host, in front of the containers.
 
 ## Layout
 
@@ -13,6 +13,7 @@ A Docker Compose stack for a small VPS: a Rust API, a SvelteKit site in 2 versio
 | `local/Caddyfile` | The Caddy of the local test. |
 | `caddy/*.caddy` | The Caddy sites of this stack. `just caddy` installs them in `/etc/caddy/managed/` on the VPS, and touches nothing else. |
 | `caddy/Caddyfile` | A minimal main Caddyfile, for a host that runs only this stack. `just caddy` does not install it. |
+| `scripts/beszel-setup.sh` | Connects the Beszel agent to its hub (`just beszel-setup`, `just local-beszel`). |
 | `justfile` | All the commands. Run `just` to list them. |
 | `src/` (not in git) | The sources of the images, cloned by `just init`. |
 | `data/` (not in git) | The files mounted into the containers: static files, fonts, web roots. |
@@ -27,6 +28,8 @@ A Docker Compose stack for a small VPS: a Rust API, a SvelteKit site in 2 versio
 | `atkuzu` | `tomplanche/atkuzu:main` | `127.0.0.1:3002` | [atkuzu](https://tangled.org/tomplanche.com/atkuzu), `main` | `env/atkuzu.env` | `data/atkuzu` on `/data` |
 | `atkuzu-daily` | `tomplanche/atkuzu-daily:main` | none (a job) | [atkuzu](https://tangled.org/tomplanche.com/atkuzu), `main` | `env/atkuzu-daily.env` | `data/atkuzu/daily` on `/app/static/daily` |
 | `sifa-page` | `tomplanche/sifa-page:main` | none (a job) | [sifa-page](https://github.com/singi-labs/sifa-page), `main` | none | `/var/www/sifa-page` on `/out` |
+| `beszel` | `henrygd/beszel:0.21.1` | `127.0.0.1:8090` | [Beszel](https://github.com/henrygd/beszel) hub | `env/beszel.env` | `data/beszel/hub`, `data/beszel/socket` |
+| `beszel-agent` | `henrygd/beszel-agent:0.21.1` | none (host network) | [Beszel](https://github.com/henrygd/beszel) agent | `data/beszel/agent.env` (written by `just beszel-setup`) | `data/beszel/agent`, `data/beszel/socket`, the Docker socket (read only) |
 
 - The ports listen on `127.0.0.1` only: the Caddy of the host is the only way in.
 - `vps-back` serves the files of `data/vps-back/static` under `/static/`. With `GITHUB_TOKEN`, it also writes `github-stats.json` there.
@@ -36,6 +39,7 @@ A Docker Compose stack for a small VPS: a Rust API, a SvelteKit site in 2 versio
 - `atkuzu` keeps its SQLite database (the atproto OAuth sessions and state) in `data/atkuzu/atkuzu.db`, and it applies its migrations at start-up. It finds its public URL in the `X-Forwarded-*` headers of Caddy. The OAuth login works only on a public HTTPS domain (`OAUTH_DOMAIN`).
 - The dailies of atkuzu are static JSON files in `data/atkuzu/daily`. The app serves them from there (`DAILY_DIR`), also to its own server-side render, so a new daily needs no rebuild and no restart. `atkuzu-daily` is not a server: `docker compose run --rm atkuzu-daily` writes each missing daily, from the day after the last one up to today in Paris time. Run it every hour (see "Jobs").
 - `sifa-page` is not a server. `docker compose run --rm sifa-page` fetches the profile from sifa.id, builds the page and replaces the content of `/var/www/sifa-page`.
+- Beszel shows the CPU, RAM, disk and network of the host and of each container, with history and alerts. The hub listens on `127.0.0.1` only: open it with `just beszel-tunnel`. The agent listens on a unix socket, not on a network port, and it connects to the hub itself (see "Monitoring").
 - Each container keeps 3 log files of 10 MB at most.
 
 ## Local test
@@ -64,13 +68,19 @@ Requirements: Docker with Compose 2.24 or later, `just`, `git`.
    just local-daily
    ```
 
+   Then connect the local Beszel agent to the local hub:
+
+   ```bash
+   just local-beszel
+   ```
+
 4. Run the checks. They go through the local Caddy, with the production routes:
 
    ```bash
    just local-test
    ```
 
-5. Open http://localhost:8080 (site), http://next.localhost:8080 (next-site), http://api.localhost:8080 (vps-back), http://atkuzu.localhost:8080 (atkuzu) and http://localhost:8080/sifa-page/. The login of atkuzu does not work locally: it needs a public HTTPS domain.
+5. Open http://localhost:8080 (site), http://next.localhost:8080 (next-site), http://api.localhost:8080 (vps-back), http://atkuzu.localhost:8080 (atkuzu), http://localhost:8080/sifa-page/ and http://localhost:8091 (Beszel, user `admin@example.com`, password `local-test-password`). The login of atkuzu does not work locally: it needs a public HTTPS domain.
 
 6. Stop the stack:
 
@@ -86,7 +96,7 @@ The VPS needs:
 
 - Docker with the Compose plugin, usable by the SSH user (member of the `docker` group);
 - this repository in `~/hetzner-docker`;
-- the env files `env/vps-back.env`, `env/site.env`, `env/atkuzu.env`, `env/atkuzu-daily.env` and, optionally, `env/next-site.env`, made from `env/*.env.example` with the real values;
+- the env files `env/vps-back.env`, `env/site.env`, `env/atkuzu.env`, `env/atkuzu-daily.env`, `env/beszel.env` and, optionally, `env/next-site.env`, made from `env/*.env.example` with the real values;
 - the directories `data/vps-back/static`, `data/fonts` and `data/atkuzu` (owned by the uid 1000, the user of the containers);
 - Caddy on the host, with a main Caddyfile that imports `managed/*.caddy` (see "Caddy").
 
@@ -100,7 +110,7 @@ set -Ux VPS deploy@203.0.113.10
 
 In bash or zsh, put `export VPS=deploy@203.0.113.10` in the shell profile.
 
-On the VPS itself, `VPS` is not necessary. The recipes find out where they run from the env files: the real `env/*.env` files exist only on the VPS. There, `just publish-sifa`, `just publish-daily`, `just vps-status` and `just vps-logs` run their command directly, without SSH. The recipes of the build machine (`init`, `pull`, `build`, `local-*`, `send`, `ship`) refuse to run there. To update this repository on the VPS, use `git pull --ff-only`: `just pull` updates the sources of the images, on the build machine.
+On the VPS itself, `VPS` is not necessary. The recipes find out where they run from the env files: the real `env/*.env` files exist only on the VPS. There, `just publish-sifa`, `just publish-daily`, `just beszel-setup`, `just vps-status` and `just vps-logs` run their command directly, without SSH. The recipes of the build machine (`init`, `pull`, `build`, `local-*`, `send`, `ship`) refuse to run there. To update this repository on the VPS, use `git pull --ff-only`: `just pull` updates the sources of the images, on the build machine.
 
 ### Each deploy
 
@@ -129,6 +139,17 @@ The jobs are not servers: each run starts a container, which does its work and s
   5 * * * * cd ~/hetzner-docker && docker compose run --rm atkuzu-daily >> ~/hetzner-docker/data/atkuzu/daily.log 2>&1
   ```
 
+### Monitoring
+
+Beszel needs one setup on the VPS:
+
+1. Set a real email and a strong password in `env/beszel.env`: they make the first user (an admin) at the first start of the hub.
+2. Start the hub: `docker compose up -d --wait beszel` on the VPS.
+3. Connect the agent: `just beszel-setup`. The recipe logs in to the hub, reads its public key, enables a permanent universal token, writes them to `data/beszel/agent.env`, and starts the agent. The agent then registers itself in the hub.
+4. Open the hub from the local machine: `just beszel-tunnel`, then http://localhost:8090.
+
+In the hub, you can set alerts (CPU, RAM, disk, a system that goes down) and back up its data to S3-compatible storage (Settings, Backups).
+
 ### Caddy
 
 `just caddy` installs the sites of `caddy/` in `/etc/caddy/managed/` on the VPS. It replaces all the `*.caddy` files of that directory, and it does not touch the rest of `/etc/caddy`. The main `/etc/caddy/Caddyfile` must import `managed/*.caddy`:
@@ -155,6 +176,9 @@ Run `just caddy-diff` on the VPS first, and make sure that the diff shows only t
 | `just ship <service>...` | local | Sends the images and restarts their services on the VPS. |
 | `just publish-sifa` | local or VPS | Rebuilds `/var/www/sifa-page` on the VPS. |
 | `just publish-daily` | local or VPS | Writes the missing dailies of atkuzu into `data/atkuzu/daily` on the VPS. |
+| `just local-beszel` | local | Connects the local Beszel agent to the local hub (port 8091), then starts it. |
+| `just beszel-setup` | local or VPS | Connects the Beszel agent to the hub of the VPS, then starts it. |
+| `just beszel-tunnel` | local | Opens the Beszel hub of the VPS on http://localhost:8090, through an SSH tunnel. |
 | `just vps-status` | local or VPS | `docker compose ps` on the VPS. |
 | `just vps-logs [service...]` | local or VPS | Follows the logs on the VPS. |
 | `just caddy-diff` | VPS | Compares the routes that Caddy runs with the routes after `just caddy`. |

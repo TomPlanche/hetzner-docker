@@ -31,6 +31,20 @@ services:
     volumes: !override
       - ./data/www/sifa-page:/out
 
+  # The local hub is on port 8091, so that `just beszel-tunnel` can use 8090.
+  beszel:
+    ports: !override
+      - 127.0.0.1:8091:8090
+    env_file: !override
+      - env/beszel.env.example
+
+  # Bridge network: on the build machine, "host" is the Docker VM, where the
+  # published port of the hub is not reachable.
+  beszel-agent:
+    network_mode: !reset null
+    environment:
+      HUB_URL: http://beszel:8090
+
   caddy:
     image: caddy:2-alpine
     # --watch: Caddy reloads local/Caddyfile when it changes. The directory is
