@@ -5,9 +5,12 @@
 # them to the VPS. The images have the architecture of the build machine: build
 # them on a machine with the same architecture as the VPS (arm64 here).
 # [vps] recipes run on the VPS, in ~/hetzner-docker.
+# [local or vps] recipes act on the stack of the VPS: over SSH from the build
+# machine, or directly on the VPS.
 #
-# The recipes that reach the VPS read its SSH target from the VPS environment
-# variable (user@host). This public repository does not hold the address.
+# The recipes that reach the VPS over SSH read its SSH target from the VPS
+# environment variable (user@host). This public repository does not hold the
+# address.
 
 # --norc: in an SSH session, `bash -c` reads /etc/bash.bashrc, which fails with
 # -u ("PS1: unbound variable").
@@ -17,12 +20,21 @@ vps     := env("VPS", "")
 vps_dir := "hetzner-docker"
 local   := "docker compose -f compose.yaml -f compose.local.yaml"
 
+# The real env files exist only on the VPS: they tell where a recipe runs.
+on_vps := if path_exists(justfile_directory() + "/env/vps-back.env") == "true" { "true" } else { "false" }
+
+# How a [local or vps] recipe runs a command in the stack directory of the VPS:
+# directly on the VPS, over SSH elsewhere.
+on_stack     := if on_vps == "true" { "bash -c" } else { "ssh " + vps }
+on_stack_tty := if on_vps == "true" { "bash -c" } else { "ssh -t " + vps }
+stack_dir    := if on_vps == "true" { justfile_directory() } else { vps_dir }
+
 # List the recipes
 default:
     @"{{just_executable()}}" --justfile "{{justfile()}}" --list --unsorted
 
 # Clone the missing sources of the images into src/ [local]
-init:
+init: _build-machine
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p src
@@ -51,16 +63,22 @@ init:
     fi
 
 # Update the sources of the images, fast-forward only [local]
-pull:
+pull: _build-machine
     #!/usr/bin/env bash
     set -euo pipefail
-    for dir in src/*/; do
+    shopt -s nullglob
+    dirs=(src/*/)
+    if [ "${#dirs[@]}" -eq 0 ]; then
+        echo "error: no source in src/, run: just init" >&2
+        exit 1
+    fi
+    for dir in "${dirs[@]}"; do
         echo "== $dir"
         git -C "$dir" pull --ff-only
     done
 
 # Build the images: all of them, or the given services [local]
-build *services:
+build *services: _build-machine
     #!/usr/bin/env bash
     set -euo pipefail
     # The front shows its last commit: give it to the build (see images/portfolio).
@@ -82,7 +100,7 @@ local-up: build
     {{local}} up -d --wait --remove-orphans site next-site vps-back caddy
 
 # Check the local stack through its Caddy [local]
-local-test:
+local-test: _build-machine
     #!/usr/bin/env bash
     set -uo pipefail
     failed=0
@@ -132,19 +150,19 @@ local-test:
     fi
 
 # Build the sifa-page into data/www/sifa-page, served on localhost:8080/sifa-page/ [local]
-local-sifa:
+local-sifa: _build-machine
     {{local}} run --rm sifa-page
 
 # Show the logs of the local stack [local]
-local-logs *services:
+local-logs *services: _build-machine
     {{local}} logs -f {{services}}
 
 # Stop the local stack. `just local-down -v` also deletes the local database [local]
-local-down *args:
+local-down *args: _build-machine
     {{local}} --profile tools down --remove-orphans {{args}}
 
 # Send the images of services to the VPS, without a start [local]
-send +services: _need-vps
+send +services: _build-machine _need-vps
     #!/usr/bin/env bash
     set -euo pipefail
     # The production file alone, so that no local-only image (caddy) goes;
@@ -168,17 +186,17 @@ ship +services: (send services)
         ssh {{vps}} "cd {{vps_dir}} && docker compose up -d --wait$servers && docker compose ps"
     fi
 
-# Rebuild sifa-page into /var/www/sifa-page on the VPS [local]
+# Rebuild sifa-page into /var/www/sifa-page on the VPS [local or vps]
 publish-sifa: _need-vps
-    ssh {{vps}} 'cd {{vps_dir}} && docker compose run --rm sifa-page'
+    {{on_stack}} 'cd {{stack_dir}} && docker compose run --rm sifa-page'
 
-# Show the services on the VPS [local]
+# Show the services on the VPS [local or vps]
 vps-status: _need-vps
-    ssh {{vps}} 'cd {{vps_dir}} && docker compose ps'
+    {{on_stack}} 'cd {{stack_dir}} && docker compose ps'
 
-# Follow the logs of services on the VPS [local]
+# Follow the logs of services on the VPS [local or vps]
 vps-logs *services: _need-vps
-    ssh -t {{vps}} 'cd {{vps_dir}} && docker compose logs -f --tail 100 {{services}}'
+    {{on_stack_tty}} 'cd {{stack_dir}} && docker compose logs -f --tail 100 {{services}}'
 
 # Compare the config that Caddy runs with the config after `just caddy` [vps]
 caddy-diff:
@@ -273,11 +291,21 @@ _normalize file:
     print(json.dumps(config, indent=2, sort_keys=True))
     ' {{quote(file)}}
 
-# Stop when VPS is not set: this public repository does not hold the address of the server
+# Stop on the VPS: the recipe runs on the build machine
+[private]
+_build-machine:
+    #!/usr/bin/env bash
+    if [ "{{on_vps}}" = "true" ]; then
+        echo "error: this recipe runs on the build machine, not on the VPS (the VPS has env/vps-back.env)." >&2
+        echo "To update this repository on the VPS: git pull --ff-only" >&2
+        exit 1
+    fi
+
+# Stop when VPS is not set on the build machine: this public repository does not hold the address of the server
 [private]
 _need-vps:
     #!/usr/bin/env bash
-    if [ -z "{{vps}}" ]; then
+    if [ "{{on_vps}}" = "false" ] && [ -z "{{vps}}" ]; then
         echo "error: set VPS to the SSH target of the server (user@host)." >&2
         echo "  bash or zsh: export VPS=deploy@203.0.113.10" >&2
         echo "  fish:        set -Ux VPS deploy@203.0.113.10" >&2

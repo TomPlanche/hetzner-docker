@@ -92,6 +92,8 @@ set -Ux VPS deploy@203.0.113.10
 
 In bash or zsh, put `export VPS=deploy@203.0.113.10` in the shell profile.
 
+On the VPS itself, `VPS` is not necessary. The recipes find out where they run from the env files: the real `env/*.env` files exist only on the VPS. There, `just publish-sifa`, `just vps-status` and `just vps-logs` run their command directly, without SSH. `just send` and `just ship` refuse to run there: they send the images of the build machine.
+
 ### Each deploy
 
 On the local machine:
@@ -135,9 +137,9 @@ Run `just caddy-diff` on the VPS first, and make sure that the diff shows only t
 | `just local-down` | local | Stops the local stack. |
 | `just send <service>...` | local | Sends the images to the VPS, without a start. |
 | `just ship <service>...` | local | Sends the images and restarts their services on the VPS. |
-| `just publish-sifa` | local | Rebuilds `/var/www/sifa-page` on the VPS. |
-| `just vps-status` | local | `docker compose ps` on the VPS. |
-| `just vps-logs [service...]` | local | Follows the logs on the VPS. |
+| `just publish-sifa` | local or VPS | Rebuilds `/var/www/sifa-page` on the VPS. |
+| `just vps-status` | local or VPS | `docker compose ps` on the VPS. |
+| `just vps-logs [service...]` | local or VPS | Follows the logs on the VPS. |
 | `just caddy-diff` | VPS | Compares the routes that Caddy runs with the routes after `just caddy`. |
 | `just caddy` | VPS | Installs `caddy/*.caddy` into `/etc/caddy/managed/`, validates and reloads Caddy. It restores the old files on error. |
 
