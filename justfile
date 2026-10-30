@@ -63,7 +63,7 @@ init: _build-machine
         echo "added  src/next-site: worktree of src/site on next"
     fi
 
-# Update the sources of the images, fast-forward only [local]
+# Update the sources of the images to their upstream branch, force-pushes included [local]
 pull: _build-machine
     #!/usr/bin/env bash
     set -euo pipefail
@@ -73,10 +73,23 @@ pull: _build-machine
         echo "error: no source in src/, run: just init" >&2
         exit 1
     fi
+    # src/ holds mirrors for the builds, not work: each one follows its upstream
+    # branch, even after a force-push. A local change stops it, to never lose work.
+    failed=0
     for dir in "${dirs[@]}"; do
         echo "== $dir"
-        git -C "$dir" pull --ff-only
+        if [ -n "$(git -C "$dir" status --porcelain)" ]; then
+            echo "error: $dir has local changes: commit them elsewhere, or drop them" >&2
+            failed=$((failed + 1))
+            continue
+        fi
+        git -C "$dir" fetch --quiet
+        git -C "$dir" reset --hard --quiet '@{u}'
+        git -C "$dir" log --oneline -1
     done
+    if [ "$failed" -gt 0 ]; then
+        exit 1
+    fi
 
 # Build the images: all of them, or the given services [local]
 build *services: _build-machine
