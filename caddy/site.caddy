@@ -1,0 +1,39 @@
+# site: the portfolio front (port 3000), vps-back under /api/, and static
+# pages under /sifa-page/ and /dither/.
+tomplanche.com {
+	handle_path /.well-known/atproto-did {
+		respond "did:plc:ybx6os5vaaksppbxwvqqciaf"
+	}
+
+	# The routes of vps-back have no /api prefix.
+	handle /api/* {
+		uri strip_prefix /api
+		reverse_proxy localhost:8000
+	}
+
+	redir /sifa-page /sifa-page/
+	handle_path /sifa-page/* {
+		root * /var/www/sifa-page
+		try_files {path} {path}.html
+		file_server
+		encode zstd gzip
+	}
+
+	redir /dither /dither/
+	handle_path /dither/* {
+		root * /var/www/dither
+		encode zstd gzip
+
+		@hashed path_regexp \-[0-9a-f]{8,}\.(js|wasm|css)$
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
+		header /index.html Cache-Control "no-cache"
+		@samples path /samples/*
+		header @samples Cache-Control "public, max-age=604800"
+
+		file_server
+	}
+
+	handle {
+		reverse_proxy localhost:3000
+	}
+}

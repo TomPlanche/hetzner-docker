@@ -1,0 +1,4 @@
+# vps-back: the API (port 8000). tomplanche.com/api/* is in site.caddy.
+api.tomplanche.com {
+	reverse_proxy localhost:8000
+}

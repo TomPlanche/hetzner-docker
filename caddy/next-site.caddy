@@ -1,0 +1,6 @@
+# next-site: the preview of the `next` branch of the front (port 3001).
+next.tomplanche.com {
+	# A branch preview: keep it out of the search engines.
+	header X-Robots-Tag "noindex, nofollow"
+	reverse_proxy 127.0.0.1:3001
+}

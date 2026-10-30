@@ -1,0 +1,36 @@
+# Caddy of `just local-up`: the routes of caddy/ for the apps of this stack,
+# on http://localhost:8080 and its subdomains, without TLS.
+{
+	auto_https off
+	admin off
+}
+
+# tomplanche.com (caddy/site.caddy)
+http://localhost:8080 {
+	handle /api/* {
+		uri strip_prefix /api
+		reverse_proxy vps-back:8000
+	}
+
+	redir /sifa-page /sifa-page/
+	handle_path /sifa-page/* {
+		root * /srv/www/sifa-page
+		try_files {path} {path}.html
+		file_server
+	}
+
+	handle {
+		reverse_proxy site:3000
+	}
+}
+
+# next.tomplanche.com (caddy/next-site.caddy)
+http://next.localhost:8080 {
+	header X-Robots-Tag "noindex, nofollow"
+	reverse_proxy next-site:3000
+}
+
+# api.tomplanche.com (caddy/vps-back.caddy)
+http://api.localhost:8080 {
+	reverse_proxy vps-back:8000
+}

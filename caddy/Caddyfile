@@ -1,0 +1,12 @@
+# A minimal main Caddyfile, for a host that runs only this stack. `just caddy`
+# does not install it: the main Caddyfile belongs to the host. Install it once:
+#
+#   sudo install -m 644 caddy/Caddyfile /etc/caddy/Caddyfile
+#
+# A host with other sites keeps its own main Caddyfile. That file must import
+# managed/*.caddy, where `just caddy` installs the *.caddy files of caddy/.
+#
+# The import paths are relative to this file.
+
+import managed/*.caddy
+import sites-enabled/*.caddy

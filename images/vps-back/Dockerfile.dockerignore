@@ -1,0 +1,6 @@
+.git
+target
+static
+logs
+.env
+.env.*

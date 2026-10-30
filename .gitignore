@@ -1,0 +1,10 @@
+# Sources of the images, cloned by `just init`.
+/src/
+
+# Files mounted into the containers: static files, fonts, web roots.
+/data/
+
+# Real env files, with secrets. The env/*.env.example files are in git.
+/env/*.env
+
+.DS_Store

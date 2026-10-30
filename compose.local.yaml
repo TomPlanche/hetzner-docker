@@ -1,0 +1,36 @@
+# Local test on the build machine, on top of compose.yaml: `just local-up`.
+#
+# Differences with production:
+# - The env files are the test values of env/*.env.example.
+# - Caddy runs in a container on http://localhost:8080 (local/Caddyfile).
+# - sifa-page writes to data/www/sifa-page instead of /var/www/sifa-page.
+
+services:
+  vps-back:
+    env_file: !override
+      - env/vps-back.env.example
+
+  site:
+    env_file: !override
+      - env/site.env.example
+
+  next-site:
+    env_file: !override
+      - env/site.env.example
+      - env/next-site.env.example
+
+  sifa-page:
+    volumes: !override
+      - ./data/www/sifa-page:/out
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - 127.0.0.1:8080:8080
+    volumes:
+      - ./local/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/www:/srv/www:ro
+    depends_on:
+      - site
+      - next-site
+      - vps-back

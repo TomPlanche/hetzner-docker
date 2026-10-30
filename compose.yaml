@@ -1,0 +1,96 @@
+# Production stack of the Hetzner VPS.
+#
+# Caddy runs on the host (caddy/) and proxies to the ports below, which listen
+# on 127.0.0.1 only. Test this stack locally with `just local-up`, which adds
+# compose.local.yaml on top of this file.
+#
+# Not in git: env/*.env (secrets, see env/*.env.example), data/ (mounted
+# files), src/ (the sources of the images, cloned by `just init`).
+
+name: hetzner
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  vps-back:
+    image: tomplanche/vps-back:main
+    build:
+      context: src/vps-back
+      dockerfile: ../../images/vps-back/Dockerfile
+    ports:
+      - 127.0.0.1:8000:8000
+    env_file: env/vps-back.env
+    # These values win over the env file.
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8000"
+      STATIC_DIR: /data/static
+    volumes:
+      # Served under /static/ (api.tomplanche.com/static/). Writable: vps-back
+      # writes github-stats.json in it.
+      - ./data/vps-back/static:/data/static
+    restart: unless-stopped
+    logging: *logging
+
+  site:
+    image: tomplanche/portfolio:main
+    build:
+      context: src/site
+      dockerfile: ../../images/portfolio/Dockerfile
+      args:
+        COMMIT_SHA: ${SITE_COMMIT_SHA:-}
+        COMMIT_DATE: ${SITE_COMMIT_DATE:-}
+        COMMIT_URL: ${SITE_COMMIT_URL:-}
+    ports:
+      - 127.0.0.1:3000:3000
+    env_file: env/site.env
+    environment:
+      HOST: 0.0.0.0
+      PORT: "3000"
+    volumes:
+      - ./data/fonts:/app/build/client/fonts:ro
+    restart: unless-stopped
+    logging: *logging
+
+  next-site:
+    image: tomplanche/portfolio:next
+    build:
+      context: src/next-site
+      dockerfile: ../../images/portfolio/Dockerfile
+      args:
+        COMMIT_SHA: ${NEXT_COMMIT_SHA:-}
+        COMMIT_DATE: ${NEXT_COMMIT_DATE:-}
+        COMMIT_URL: ${NEXT_COMMIT_URL:-}
+    ports:
+      - 127.0.0.1:3001:3000
+    # The env of site, then the values that differ for next-site (MAINTENANCE,
+    # for example). A later file wins over an earlier one.
+    env_file:
+      - env/site.env
+      - path: env/next-site.env
+        required: false
+    environment:
+      HOST: 0.0.0.0
+      PORT: "3000"
+    volumes:
+      - ./data/fonts:/app/build/client/fonts:ro
+    restart: unless-stopped
+    logging: *logging
+
+  # A one-shot job, not a server: `just publish-sifa` (or
+  # `docker compose run --rm sifa-page`) rebuilds the page into /var/www.
+  sifa-page:
+    image: tomplanche/sifa-page:main
+    build:
+      context: src/sifa-page
+      dockerfile: ../../images/sifa-page/Dockerfile
+    profiles: [tools]
+    environment:
+      SIFA_ID: did:plc:ybx6os5vaaksppbxwvqqciaf
+    volumes:
+      - /var/www/sifa-page:/out
+    logging: *logging

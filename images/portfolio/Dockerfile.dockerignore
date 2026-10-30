@@ -1,0 +1,13 @@
+.git
+node_modules
+build
+next-build
+.build-trees
+.svelte-kit
+deploy
+.env
+.env.*
+# Mounted at runtime: the fonts have a license that does not allow them in an image.
+static/fonts
+# Written by the Dockerfile from the build arguments.
+static/website_infos.json
