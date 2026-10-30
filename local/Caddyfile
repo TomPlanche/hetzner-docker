@@ -34,3 +34,9 @@ http://next.localhost:8080 {
 http://api.localhost:8080 {
 	reverse_proxy vps-back:8000
 }
+
+# atkuzu.tomplanche.com (caddy/atkuzu.caddy)
+http://atkuzu.localhost:8080 {
+	encode zstd gzip
+	reverse_proxy atkuzu:3000
+}

@@ -19,18 +19,31 @@ services:
       - env/site.env.example
       - env/next-site.env.example
 
+  atkuzu:
+    env_file: !override
+      - env/atkuzu.env.example
+
+  atkuzu-daily:
+    env_file: !override
+      - env/atkuzu-daily.env.example
+
   sifa-page:
     volumes: !override
       - ./data/www/sifa-page:/out
 
   caddy:
     image: caddy:2-alpine
+    # --watch: Caddy reloads local/Caddyfile when it changes. The directory is
+    # mounted, not the file: an editor that replaces the file would leave the
+    # container on the old one.
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile", "--watch"]
     ports:
       - 127.0.0.1:8080:8080
     volumes:
-      - ./local/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./local:/etc/caddy:ro
       - ./data/www:/srv/www:ro
     depends_on:
       - site
       - next-site
       - vps-back
+      - atkuzu

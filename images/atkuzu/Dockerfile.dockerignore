@@ -1,0 +1,12 @@
+.git
+node_modules
+build
+.svelte-kit
+src/lib/wasm/pkg
+takuzu-grid-factory/target
+local.db
+local.db-*
+.env
+.env.*
+# Written by the atkuzu-daily job into the mounted daily directory.
+static/daily

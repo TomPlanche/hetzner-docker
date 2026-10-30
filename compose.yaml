@@ -81,6 +81,46 @@ services:
     restart: unless-stopped
     logging: *logging
 
+  atkuzu:
+    image: tomplanche/atkuzu:main
+    build:
+      context: src/atkuzu
+      dockerfile: ../../images/atkuzu/Dockerfile
+      target: app
+    ports:
+      - 127.0.0.1:3002:3000
+    env_file: env/atkuzu.env
+    environment:
+      HOST: 0.0.0.0
+      PORT: "3000"
+      DATABASE_URL: /data/atkuzu.db
+      # The dailies that atkuzu-daily writes: the app serves them from here.
+      DAILY_DIR: /data/daily
+      # Behind Caddy: the public URL of a request (for the OAuth login and the
+      # check of form origins) comes from the X-Forwarded-* headers of Caddy.
+      PROTOCOL_HEADER: x-forwarded-proto
+      HOST_HEADER: x-forwarded-host
+    volumes:
+      # The SQLite database (the OAuth sessions and state) and daily/.
+      - ./data/atkuzu:/data
+    restart: unless-stopped
+    logging: *logging
+
+  # A one-shot job, not a server: `just publish-daily` (or
+  # `docker compose run --rm atkuzu-daily`) writes the missing dailies of
+  # atkuzu into data/atkuzu/daily, which the app serves. Run it every hour.
+  atkuzu-daily:
+    image: tomplanche/atkuzu-daily:main
+    build:
+      context: src/atkuzu
+      dockerfile: ../../images/atkuzu/Dockerfile
+      target: daily
+    profiles: [tools]
+    env_file: env/atkuzu-daily.env
+    volumes:
+      - ./data/atkuzu/daily:/app/static/daily
+    logging: *logging
+
   # A one-shot job, not a server: `just publish-sifa` (or
   # `docker compose run --rm sifa-page`) rebuilds the page into /var/www.
   sifa-page:

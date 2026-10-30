@@ -49,6 +49,7 @@ init: _build-machine
     clone vps-back https://github.com/TomPlanche/vps-back.git main
     clone site https://github.com/TomPlanche/portfolio-v222.git main
     clone sifa-page https://github.com/singi-labs/sifa-page.git main
+    clone atkuzu https://tangled.org/tomplanche.com/atkuzu main
     # next-site: the next branch of the front, as a git worktree of src/site.
     if [ -e src/next-site ]; then
         echo "ok     src/next-site"
@@ -97,7 +98,7 @@ build *services: _build-machine
 
 # Build and start the stack locally, with Caddy on http://localhost:8080 [local]
 local-up: build
-    {{local}} up -d --wait --remove-orphans site next-site vps-back caddy
+    {{local}} up -d --wait --remove-orphans site next-site vps-back atkuzu caddy
 
 # Check the local stack through its Caddy [local]
 local-test: _build-machine
@@ -125,9 +126,9 @@ local-test: _build-machine
             echo "ok    $description"
         fi
     }
-    check "site: home page" 200 localhost:8080 /
+    check "site: home page" 200 localhost:8080 / "<html"
     check "site: no maintenance (env/site.env)" 200 localhost:8080 / "!Working on cleaner deployment methods"
-    check "site: static file" 200 localhost:8080 /_app/version.json
+    check "site: static file" 200 localhost:8080 /_app/version.json '"version"'
     check "site: sitemap with the last commit" 200 localhost:8080 /sitemap.xml "<lastmod>"
     # The maintenance page answers 503 on purpose (src/hooks.server.ts of the front).
     check "next-site: maintenance from env/next-site.env" 503 next.localhost:8080 / "Working on cleaner deployment methods"
@@ -144,6 +145,29 @@ local-test: _build-machine
     else
         echo "skip  sifa-page: run just local-sifa first"
     fi
+    check "atkuzu: home page" 200 atkuzu.localhost:8080 / "<html"
+    check "atkuzu: static file" 200 atkuzu.localhost:8080 /_app/version.json '"version"'
+    check "atkuzu: login page (form action)" 200 atkuzu.localhost:8080 /login "<html"
+    if [ -f data/atkuzu/atkuzu.db ]; then
+        echo "ok    atkuzu: database in data/atkuzu (migrations at start-up)"
+    else
+        echo "FAIL  atkuzu: no data/atkuzu/atkuzu.db"
+        failed=$((failed + 1))
+    fi
+    if [ -d data/atkuzu/daily ]; then
+        today=$(TZ=Europe/Paris date +%F)
+        check "atkuzu: daily index (DAILY_DIR)" 200 atkuzu.localhost:8080 /daily/index.json "$today"
+        check "atkuzu: daily of today (DAILY_DIR)" 200 atkuzu.localhost:8080 "/daily/$today.json" '"puzzles"'
+        # The page loads the daily during SSR: the server must find the file too,
+        # not only the browser through Caddy.
+        check "atkuzu: /daily renders the daily of today on the server" 200 atkuzu.localhost:8080 /daily "solutionSha256"
+        past=$(ls data/atkuzu/daily | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}\.json$' | grep -v "^$today" | sort | tail -n 1)
+        if [ -n "$past" ]; then
+            check "atkuzu: /daily/${past%.json} renders a past daily on the server" 200 atkuzu.localhost:8080 "/daily/${past%.json}" "solutionSha256"
+        fi
+    else
+        echo "skip  atkuzu dailies: run just local-daily first"
+    fi
     if [ "$failed" -gt 0 ]; then
         echo "$failed check(s) failed"
         exit 1
@@ -152,6 +176,11 @@ local-test: _build-machine
 # Build the sifa-page into data/www/sifa-page, served on localhost:8080/sifa-page/ [local]
 local-sifa: _build-machine
     {{local}} run --rm sifa-page
+
+# Write the missing dailies of atkuzu into data/atkuzu/daily [local]
+local-daily: _build-machine
+    mkdir -p data/atkuzu/daily
+    {{local}} run --rm atkuzu-daily
 
 # Show the logs of the local stack [local]
 local-logs *services: _build-machine
@@ -177,10 +206,14 @@ send +services: _build-machine _need-vps
 ship +services: (send services)
     #!/usr/bin/env bash
     set -euo pipefail
-    # sifa-page is a job, not a server: `just publish-sifa` runs it.
+    # sifa-page and atkuzu-daily are jobs, not servers: `just publish-sifa` and
+    # `just publish-daily` run them.
     servers=""
     for service in {{services}}; do
-        if [ "$service" != sifa-page ]; then servers="$servers $service"; fi
+        case "$service" in
+            sifa-page | atkuzu-daily) ;;
+            *) servers="$servers $service" ;;
+        esac
     done
     if [ -n "$servers" ]; then
         ssh {{vps}} "cd {{vps_dir}} && docker compose up -d --wait$servers && docker compose ps"
@@ -189,6 +222,10 @@ ship +services: (send services)
 # Rebuild sifa-page into /var/www/sifa-page on the VPS [local or vps]
 publish-sifa: _need-vps
     {{on_stack}} 'cd {{stack_dir}} && docker compose run --rm sifa-page'
+
+# Write the missing dailies of atkuzu into data/atkuzu/daily on the VPS [local or vps]
+publish-daily: _need-vps
+    {{on_stack}} 'cd {{stack_dir}} && docker compose run --rm atkuzu-daily'
 
 # Show the services on the VPS [local or vps]
 vps-status: _need-vps

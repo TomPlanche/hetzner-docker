@@ -1,0 +1,6 @@
+# atkuzu: the Takuzu game (port 3002). The app serves the dailies itself, from
+# data/atkuzu/daily (DAILY_DIR).
+atkuzu.tomplanche.com {
+	encode zstd gzip
+	reverse_proxy localhost:3002
+}
