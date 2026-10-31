@@ -155,14 +155,15 @@ services:
     restart: unless-stopped
     logging: *logging
 
-  # Start it after `just beszel-setup`, which writes its KEY and TOKEN.
+  # Start it after `just beszel-setup`, which writes its KEY and TOKEN to
+  # env/beszel-agent.env.
   beszel-agent:
     image: henrygd/beszel-agent:0.21.1
     # Host network: the agent reads the network of the host, and it reaches the
     # hub on 127.0.0.1:8090.
     network_mode: host
     env_file:
-      - path: data/beszel/agent.env
+      - path: env/beszel-agent.env
         required: false
     environment:
       HUB_URL: http://127.0.0.1:8090

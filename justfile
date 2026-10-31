@@ -182,7 +182,7 @@ local-test: _build-machine
         echo "skip  atkuzu dailies: run just local-daily first"
     fi
     # Beszel: the hub answers, and the agent sends data to it.
-    if [ -f data/beszel/agent.env ]; then
+    if [ -f env/beszel-agent.env ]; then
         if python3 -I - <<'PY'
     import json, sys, time, urllib.request
     hub = "http://127.0.0.1:8091"

@@ -29,7 +29,7 @@ A Docker Compose stack for a small VPS: a Rust API, a SvelteKit site in 2 versio
 | `atkuzu-daily` | `tomplanche/atkuzu-daily:main` | none (a job) | [atkuzu](https://tangled.org/tomplanche.com/atkuzu), `main` | `env/atkuzu-daily.env` | `data/atkuzu/daily` on `/app/static/daily` |
 | `sifa-page` | `tomplanche/sifa-page:main` | none (a job) | [sifa-page](https://github.com/singi-labs/sifa-page), `main` | none | `/var/www/sifa-page` on `/out` |
 | `beszel` | `henrygd/beszel:0.21.1` | `127.0.0.1:8090` | [Beszel](https://github.com/henrygd/beszel) hub | `env/beszel.env` | `data/beszel/hub`, `data/beszel/socket` |
-| `beszel-agent` | `henrygd/beszel-agent:0.21.1` | none (host network) | [Beszel](https://github.com/henrygd/beszel) agent | `data/beszel/agent.env` (written by `just beszel-setup`) | `data/beszel/agent`, `data/beszel/socket`, the Docker socket (read only) |
+| `beszel-agent` | `henrygd/beszel-agent:0.21.1` | none (host network) | [Beszel](https://github.com/henrygd/beszel) agent | `env/beszel-agent.env` (written by `just beszel-setup`) | `data/beszel/agent`, `data/beszel/socket`, the Docker socket (read only) |
 
 - The ports listen on `127.0.0.1` only: the Caddy of the host is the only way in.
 - `vps-back` serves the files of `data/vps-back/static` under `/static/`. With `GITHUB_TOKEN`, it also writes `github-stats.json` there.
@@ -143,9 +143,9 @@ The jobs are not servers: each run starts a container, which does its work and s
 
 Beszel needs one setup on the VPS:
 
-1. Set a real email and a strong password in `env/beszel.env`: they make the first user (an admin) at the first start of the hub.
+1. Set a real email and a strong password in `env/beszel.env`: they make the first user (an admin) at the first start of the hub. Put a value with spaces in quotes. Later, keep this file equal to the login of the hub: `just beszel-setup` logs in with it.
 2. Start the hub: `docker compose up -d --wait beszel` on the VPS.
-3. Connect the agent: `just beszel-setup`. The recipe logs in to the hub, reads its public key, enables a permanent universal token, writes them to `data/beszel/agent.env`, and starts the agent. The agent then registers itself in the hub.
+3. Connect the agent: `just beszel-setup`. The recipe logs in to the hub, reads its public key, enables a permanent universal token (or reuses the existing one), writes them to `env/beszel-agent.env`, and starts the agent. The agent then registers itself in the hub. You can run the recipe again: the agent keeps its system.
 4. Open the hub from the local machine: `just beszel-tunnel`, then http://localhost:8090.
 
 In the hub, you can set alerts (CPU, RAM, disk, a system that goes down) and back up its data to S3-compatible storage (Settings, Backups).
