@@ -2,7 +2,7 @@
 next.tomplanche.com {
 	# A branch preview: keep it out of the search engines.
 	header X-Robots-Tag "noindex, nofollow"
-	reverse_proxy 127.0.0.1:3001
+	reverse_proxy 10.10.0.4:3101
 
 	# The app does not answer (a restart, or its server is down): a short page
 	# instead of an empty 502. The maintenance page of the app (a 503 that the
