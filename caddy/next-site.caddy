@@ -3,4 +3,12 @@ next.tomplanche.com {
 	# A branch preview: keep it out of the search engines.
 	header X-Robots-Tag "noindex, nofollow"
 	reverse_proxy 127.0.0.1:3001
+
+	# The app does not answer (a restart, or its server is down): a short page
+	# instead of an empty 502. The maintenance page of the app (a 503 that the
+	# app sends) is not an error of Caddy: it does not come here.
+	handle_errors 502 504 {
+		header Retry-After 120
+		respond "This site is down for a moment. Try again in a few minutes." 503
+	}
 }

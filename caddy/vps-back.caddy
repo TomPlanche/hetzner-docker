@@ -1,4 +1,11 @@
 # vps-back: the API (port 8000). tomplanche.com/api/* is in site.caddy.
 api.tomplanche.com {
 	reverse_proxy localhost:8000
+
+	# The app does not answer (a restart, or its server is down): a short page
+	# instead of an empty 502.
+	handle_errors 502 504 {
+		header Retry-After 120
+		respond "This site is down for a moment. Try again in a few minutes." 503
+	}
 }

@@ -209,7 +209,7 @@ Run `just caddy-diff` on the VPS first, and make sure that the diff shows only t
 
 ## Things to know
 
-- A restart of a container stops the app for some seconds. To hide it, add `lb_try_duration 10s` in the `reverse_proxy` blocks of `caddy/`: Caddy then retries during the restart.
+- A restart of a container stops the app for some seconds. During that time, the sites of `caddy/` answer a short page with the code 503 and `Retry-After: 120` (`handle_errors 502 504`), not an empty 502. To hide the restart, add `lb_try_duration 10s` in the `reverse_proxy` blocks of `caddy/`: Caddy then retries during the restart. A 503 that the app sends itself (the maintenance page, for example) goes through unchanged.
 - Docker keeps old images. Clean them on the VPS from time to time with `docker image prune`, mostly on a small disk.
 - Compose reads `KEY=value` lines in the env files. A value with a `$` must be in single quotes, or Compose replaces the variable.
 - `env/*.env` and `data/` hold secrets and files that git does not track. Back them up with the VPS.

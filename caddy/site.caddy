@@ -36,4 +36,11 @@ tomplanche.com {
 	handle {
 		reverse_proxy localhost:3000
 	}
+
+	# An app does not answer (a restart, or its server is down): a short page
+	# instead of an empty 502. The static pages above do not need the apps.
+	handle_errors 502 504 {
+		header Retry-After 120
+		respond "This site is down for a moment. Try again in a few minutes." 503
+	}
 }
