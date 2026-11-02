@@ -111,7 +111,7 @@ build *services: _build-machine
 
 # Build and start the stack locally, with Caddy on http://localhost:8080 [local]
 local-up: build
-    {{local}} up -d --wait --remove-orphans site next-site vps-back atkuzu beszel caddy
+    {{local}} up -d --wait --remove-orphans site next-site vps-back atkuzu beszel caddy victoriametrics vmagent
 
 # Check the local stack through its Caddy [local]
 local-test: _build-machine
@@ -211,6 +211,30 @@ local-test: _build-machine
         fi
     else
         echo "skip  beszel agent: run just local-beszel first"
+    fi
+    # vmagent: it reads the metrics of Caddy and sends them to the local
+    # VictoriaMetrics (port 8438). The checks above made requests through Caddy.
+    # The first scrape comes within 30 s (scrape_interval), so wait up to 90 s.
+    if curl -sS -m 5 http://127.0.0.1:8429/health | grep -qF "OK"; then
+        echo "ok    vmagent: health"
+    else
+        echo "FAIL  vmagent: no answer on 127.0.0.1:8429/health"
+        failed=$((failed + 1))
+    fi
+    query='caddy_http_requests_total{machine="hetzner", host="localhost:8080"}'
+    metrics_found=false
+    for _ in $(seq 1 45); do
+        if curl -sS -m 5 -G http://127.0.0.1:8438/api/v1/query --data-urlencode "query=$query" | grep -qF '"host":"localhost:8080"'; then
+            metrics_found=true
+            break
+        fi
+        sleep 2
+    done
+    if [ "$metrics_found" = true ]; then
+        echo "ok    vmagent: the requests of Caddy reach VictoriaMetrics, by site"
+    else
+        echo "FAIL  vmagent: no $query in VictoriaMetrics after 90 s"
+        failed=$((failed + 1))
     fi
     if [ "$failed" -gt 0 ]; then
         echo "$failed check(s) failed"

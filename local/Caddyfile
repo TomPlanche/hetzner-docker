@@ -3,6 +3,20 @@
 {
 	auto_https off
 	admin off
+	# As the main Caddyfile of the VPS (caddy-base), with one more option: here
+	# the Host header has a port (localhost:8080), which Caddy does not find in
+	# the names of the sites. Without the option, each request goes into the
+	# host "_other".
+	metrics {
+		per_host
+		observe_catchall_hosts
+	}
+}
+
+# The metrics, for vmagent. Production serves them on the admin API
+# (localhost:2019/metrics), which is off here.
+http://:2019 {
+	metrics
 }
 
 # tomplanche.com (caddy/site.caddy)

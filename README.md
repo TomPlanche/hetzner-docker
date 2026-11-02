@@ -1,6 +1,6 @@
 # hetzner-docker
 
-A Docker Compose stack for a small VPS: a Rust API, a SvelteKit site in 2 versions (2 branches of the same repository), a Takuzu game with a daily puzzle, a static page that a job rebuilds, and a resource dashboard (Beszel). The images are built and tested on a local machine, then sent to the VPS over SSH: the VPS needs no compiler and no source code. Caddy runs on the host, in front of the containers.
+A Docker Compose stack for a small VPS: a Rust API, a SvelteKit site in 2 versions (2 branches of the same repository), a Takuzu game with a daily puzzle, a static page that a job rebuilds, a resource dashboard (Beszel), and an agent that sends the metrics of the VPS to another server (vmagent). The images are built and tested on a local machine, then sent to the VPS over SSH: the VPS needs no compiler and no source code. Caddy runs on the host, in front of the containers.
 
 ## Layout
 
@@ -14,6 +14,7 @@ A Docker Compose stack for a small VPS: a Rust API, a SvelteKit site in 2 versio
 | `caddy/*.caddy` | The Caddy sites of this stack. `just caddy` installs them in `/etc/caddy/managed/` on the VPS, and touches nothing else. |
 | `caddy/Caddyfile` | A minimal main Caddyfile, for a host that runs only this stack. `just caddy` does not install it. |
 | `scripts/beszel-setup.sh` | Connects the Beszel agent to its hub (`just beszel-setup`, `just local-beszel`). |
+| `vmagent/scrape.yaml` | The targets of vmagent: the services that give metrics, and how to reach them. |
 | `justfile` | All the commands. Run `just` to list them. |
 | `src/` (not in git) | The sources of the images, cloned by `just init`. |
 | `data/` (not in git) | The files mounted into the containers: static files, fonts, web roots. |
@@ -30,6 +31,7 @@ A Docker Compose stack for a small VPS: a Rust API, a SvelteKit site in 2 versio
 | `sifa-page` | `tomplanche/sifa-page:main` | none (a job) | [sifa-page](https://github.com/singi-labs/sifa-page), `main` | none | `/var/www/sifa-page` on `/out` |
 | `beszel` | `henrygd/beszel:0.21.1` | `127.0.0.1:8090` | [Beszel](https://github.com/henrygd/beszel) hub | `env/beszel.env` | `data/beszel/hub`, `data/beszel/socket` |
 | `beszel-agent` | `henrygd/beszel-agent:0.21.1` | none (host network) | [Beszel](https://github.com/henrygd/beszel) agent | `env/beszel-agent.env` (written by `just beszel-setup`) | `data/beszel/agent`, `data/beszel/socket`, the Docker socket (read only) |
+| `vmagent` | `victoriametrics/vmagent:v1.154.0` | host network: `127.0.0.1:8429` | [VictoriaMetrics](https://github.com/VictoriaMetrics/VictoriaMetrics) agent | `env/vmagent.env` | `vmagent/` on `/etc/vmagent`, `data/vmagent` |
 
 - The ports listen on `127.0.0.1` only: the Caddy of the host is the only way in.
 - `vps-back` serves the files of `data/vps-back/static` under `/static/`. With `GITHUB_TOKEN`, it also writes `github-stats.json` there.
@@ -40,6 +42,7 @@ A Docker Compose stack for a small VPS: a Rust API, a SvelteKit site in 2 versio
 - The dailies of atkuzu are static JSON files in `data/atkuzu/daily`. The app serves them from there (`DAILY_DIR`), also to its own server-side render, so a new daily needs no rebuild and no restart. `atkuzu-daily` is not a server: `docker compose run --rm atkuzu-daily` writes each missing daily, from the day after the last one up to today in Paris time. Run it every hour (see "Jobs").
 - `sifa-page` is not a server. `docker compose run --rm sifa-page` fetches the profile from sifa.id, builds the page and replaces the content of `/var/www/sifa-page`.
 - Beszel shows the CPU, RAM, disk and network of the host and of each container, with history and alerts. The hub listens on `127.0.0.1` only: open it with `just beszel-tunnel`. The agent listens on a unix socket, not on a network port, and it connects to the hub itself (see "Monitoring").
+- `vmagent` reads the metrics of the targets of `vmagent/scrape.yaml` every 30 seconds: Caddy (the requests of each site) and CrowdSec, on the host. It sends them to a VictoriaMetrics on another server, with the label `machine="hetzner"`. While that server does not answer, it keeps the metrics in `data/vmagent` (1 GB at most), and it sends them later. Its own page (`127.0.0.1:8429`) lists the targets and their state.
 - Each container keeps 3 log files of 10 MB at most.
 
 ## Local test
@@ -82,6 +85,8 @@ Requirements: Docker with Compose 2.24 or later, `just`, `git`.
 
 5. Open http://localhost:8080 (site), http://next.localhost:8080 (next-site), http://api.localhost:8080 (vps-back), http://atkuzu.localhost:8080 (atkuzu), http://localhost:8080/sifa-page/ and http://localhost:8091 (Beszel, user `admin@example.com`, password `local-test-password`). The login of atkuzu does not work locally: it needs a public HTTPS domain.
 
+   Locally, vmagent sends the metrics to a VictoriaMetrics of `compose.local.yaml`, on http://localhost:8438 (its UI: http://localhost:8438/vmui). The targets of vmagent are on http://localhost:8429/targets. The target `crowdsec` is down: CrowdSec runs only on the VPS.
+
 6. Stop the stack:
 
    ```bash
@@ -96,7 +101,7 @@ The VPS needs:
 
 - Docker with the Compose plugin, usable by the SSH user (member of the `docker` group);
 - this repository in `~/hetzner-docker`;
-- the env files `env/vps-back.env`, `env/site.env`, `env/atkuzu.env`, `env/atkuzu-daily.env`, `env/beszel.env` and, optionally, `env/next-site.env`, made from `env/*.env.example` with the real values;
+- the env files `env/vps-back.env`, `env/site.env`, `env/atkuzu.env`, `env/atkuzu-daily.env`, `env/beszel.env`, `env/vmagent.env` and, optionally, `env/next-site.env`, made from `env/*.env.example` with the real values;
 - the directories `data/vps-back/static`, `data/fonts` and `data/atkuzu` (owned by the uid 1000, the user of the containers);
 - Caddy on the host, with a main Caddyfile that imports `managed/*.caddy` (see "Caddy").
 
@@ -149,6 +154,24 @@ Beszel needs one setup on the VPS:
 4. Open the hub from the local machine: `just beszel-tunnel`, then http://localhost:8090.
 
 In the hub, you can set alerts (CPU, RAM, disk, a system that goes down) and back up its data to S3-compatible storage (Settings, Backups).
+
+vmagent sends the other metrics (the requests of each site, CrowdSec) to a VictoriaMetrics on another server. Grafana shows them there. To start it on the VPS:
+
+1. Make `env/vmagent.env` from `env/vmagent.env.example`. Set `remoteWrite_url` to the write URL of VictoriaMetrics, on its private address: `http://<address>:8428/api/v1/write`.
+2. For the metrics of each site, the main Caddyfile needs `metrics { per_host }` in its global options. Without it, Caddy gives only its own metrics, not the requests.
+3. Update this repository, then start vmagent:
+
+   ```bash
+   git pull --ff-only && docker compose up -d --wait vmagent
+   ```
+
+4. Check that each target is `up`:
+
+   ```bash
+   curl -s http://127.0.0.1:8429/targets
+   ```
+
+To add a target, add a job to `vmagent/scrape.yaml`, then restart vmagent: `docker compose restart vmagent`. Never send the port of a target to the internet: a metrics page shows internal data.
 
 ### Caddy
 

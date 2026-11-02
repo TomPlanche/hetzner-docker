@@ -4,6 +4,7 @@
 # - The env files are the test values of env/*.env.example.
 # - Caddy runs in a container on http://localhost:8080 (local/Caddyfile).
 # - sifa-page writes to data/www/sifa-page instead of /var/www/sifa-page.
+# - vmagent sends the metrics to a local VictoriaMetrics, on port 8438.
 
 services:
   vps-back:
@@ -45,6 +46,27 @@ services:
     environment:
       HUB_URL: http://beszel:8090
 
+  # Bridge network, as beszel-agent. The targets are the ports that the local
+  # stack publishes on the build machine: host.docker.internal.
+  vmagent:
+    network_mode: !reset null
+    env_file: !override
+      - env/vmagent.env.example
+    environment:
+      METRICS_HOST: host.docker.internal
+      httpListenAddr: :8429
+    ports:
+      - 127.0.0.1:8429:8429
+    depends_on:
+      - victoriametrics
+      - caddy
+
+  # Production: VictoriaMetrics runs on another server (see env/vmagent.env.example).
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.154.0
+    ports:
+      - 127.0.0.1:8438:8428
+
   caddy:
     image: caddy:2-alpine
     # --watch: Caddy reloads local/Caddyfile when it changes. The directory is
@@ -53,6 +75,8 @@ services:
     command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile", "--watch"]
     ports:
       - 127.0.0.1:8080:8080
+      # The metrics of Caddy, for vmagent (production: the admin API on 2019).
+      - 127.0.0.1:2019:2019
     volumes:
       - ./local:/etc/caddy:ro
       - ./data/www:/srv/www:ro

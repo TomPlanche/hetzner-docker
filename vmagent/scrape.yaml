@@ -1,0 +1,26 @@
+# The targets of vmagent (compose.yaml). %{METRICS_HOST} is an environment
+# variable of the container: 127.0.0.1 on the VPS (vmagent uses the host
+# network), host.docker.internal in the local test (compose.local.yaml).
+#
+# To add an app: expose its metrics on a port of 127.0.0.1 that Caddy does not
+# send to the internet, then add a job below.
+global:
+  scrape_interval: 30s
+
+scrape_configs:
+  # Caddy, on the host, through its admin API: the requests, status codes and
+  # durations of each site (`metrics { per_host }` in the main Caddyfile).
+  - job_name: caddy
+    static_configs:
+      - targets: ["%{METRICS_HOST}:2019"]
+
+  # CrowdSec, on the host: the decisions (bans) and the alerts of each
+  # scenario.
+  - job_name: crowdsec
+    static_configs:
+      - targets: ["%{METRICS_HOST}:6060"]
+
+  # vmagent itself: the scrapes, and the data that waits on disk.
+  - job_name: vmagent
+    static_configs:
+      - targets: ["127.0.0.1:8429"]

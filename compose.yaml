@@ -182,3 +182,39 @@ services:
       start_period: 10s
     restart: unless-stopped
     logging: *logging
+
+  # vmagent: it reads the metrics of the targets of vmagent/scrape.yaml (Caddy
+  # and CrowdSec on the host, for now) and sends them to VictoriaMetrics, on
+  # another server. While that server does not answer, it keeps them in
+  # data/vmagent, and it sends them later.
+  vmagent:
+    image: victoriametrics/vmagent:v1.154.0
+    # Host network: the targets listen on 127.0.0.1 of the host.
+    network_mode: host
+    # remoteWrite_url: the write URL of VictoriaMetrics. This public repository
+    # does not hold the private address of that server.
+    env_file: env/vmagent.env
+    # -envflag.enable: vmagent also reads its flags from these variables.
+    environment:
+      # The host of the targets in vmagent/scrape.yaml.
+      METRICS_HOST: 127.0.0.1
+      # Not on all the addresses: with the host network, that includes the
+      # public address of the VPS.
+      httpListenAddr: 127.0.0.1:8429
+    command:
+      - -envflag.enable
+      - -promscrape.config=/etc/vmagent/scrape.yaml
+      - -remoteWrite.tmpDataPath=/vmagent-data
+      - -remoteWrite.maxDiskUsagePerURL=1GB
+      # A label on each metric: the machine that it comes from.
+      - -remoteWrite.label=machine=hetzner
+    volumes:
+      - ./vmagent:/etc/vmagent:ro
+      - ./data/vmagent:/vmagent-data
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:8429/health"]
+      interval: 60s
+      timeout: 5s
+      start_period: 10s
+    restart: unless-stopped
+    logging: *logging
