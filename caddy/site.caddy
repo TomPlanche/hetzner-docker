@@ -34,7 +34,7 @@ tomplanche.com {
 	}
 
 	handle {
-		reverse_proxy localhost:3000
+		reverse_proxy 10.10.0.4:3100
 	}
 
 	# An app does not answer (a restart, or its server is down): a short page
