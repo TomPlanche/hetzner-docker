@@ -8,7 +8,7 @@ tomplanche.com {
 	# The routes of vps-back have no /api prefix.
 	handle /api/* {
 		uri strip_prefix /api
-		reverse_proxy localhost:8000
+		reverse_proxy 10.10.0.4:8100
 	}
 
 	redir /sifa-page /sifa-page/
