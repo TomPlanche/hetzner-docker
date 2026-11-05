@@ -78,7 +78,8 @@ The other apps of the sites (next-site, atkuzu) moved to ronron. `compose.yaml` 
 - This repository owns only the sites of `caddy/`. `just caddy` installs them in `/etc/caddy/managed/` and touches nothing else. The main Caddyfile and the other sites of the host come from a private repository.
 - Before each install, `just caddy-diff` compares the routes that Caddy runs (from its admin API) with the new routes.
 - For the site and the API, Caddy has two upstreams: ronron first, then the standby on the VPS (`caddy/_failover.caddy`). It checks both every 10 seconds. When ronron does not answer, the requests go to the standby, and they go back to ronron when it answers again. A request that was in progress when ronron went off goes to the standby after 10 seconds at most, except a POST, which Caddy never sends twice.
-- When an app does not answer, for example during a restart, Caddy answers a short 503 page with `Retry-After`, not an empty 502. For the site and the API, this happens only when the standby does not answer either.
+- For next-site and atkuzu, Caddy tries again during 15 seconds when the app does not answer, so a restart (a deploy, or the nightly backup of ronron) makes a request wait, not fail.
+- When an app still does not answer, Caddy answers a short 503 page with `Retry-After`, not an empty 502. For the site and the API, this happens only when the standby does not answer either.
 
 ### Monitoring
 

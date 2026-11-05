@@ -2,10 +2,17 @@
 # data/atkuzu/daily (DAILY_DIR).
 atkuzu.tomplanche.com {
 	encode zstd gzip
-	reverse_proxy 10.10.0.4:3102
+	reverse_proxy 10.10.0.4:3102 {
+		# A restart of the app (a deploy, or the nightly backup of ronron, which
+		# stops atkuzu for about 12 seconds): Caddy tries again during 15
+		# seconds, so the request waits instead of getting the 503 page below.
+		# Caddy always retries a request that it could not send. After a
+		# connection, it retries only a GET, so a POST never goes twice.
+		lb_try_duration 15s
+	}
 
-	# The app does not answer (a restart, or its server is down): a short page
-	# instead of an empty 502.
+	# The app does not answer after 15 seconds (ronron or WireGuard is down): a
+	# short page instead of an empty 502.
 	handle_errors 502 504 {
 		header Retry-After 120
 		respond "This site is down for a moment. Try again in a few minutes." 503
