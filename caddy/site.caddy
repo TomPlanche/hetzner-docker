@@ -1,5 +1,8 @@
 # site: the portfolio front (port 3000), vps-back under /api/, and static
 # pages under /sifa-page/ and /dither/.
+#
+# site and vps-back run on ronron. When ronron does not answer, the standby
+# copies of the VPS (ports 3000 and 8000) answer instead (_failover.caddy).
 tomplanche.com {
 	handle_path /.well-known/atproto-did {
 		respond "did:plc:ybx6os5vaaksppbxwvqqciaf"
@@ -8,7 +11,7 @@ tomplanche.com {
 	# The routes of vps-back have no /api prefix.
 	handle /api/* {
 		uri strip_prefix /api
-		reverse_proxy 10.10.0.4:8100
+		import failover 10.10.0.4:8100 127.0.0.1:8000 /
 	}
 
 	redir /sifa-page /sifa-page/
@@ -34,12 +37,14 @@ tomplanche.com {
 	}
 
 	handle {
-		reverse_proxy 10.10.0.4:3100
+		import failover 10.10.0.4:3100 127.0.0.1:3000 /_app/version.json
 	}
 
-	# An app does not answer (a restart, or its server is down): a short page
-	# instead of an empty 502. The static pages above do not need the apps.
-	handle_errors 502 504 {
+	# An app does not answer, neither on ronron nor on the VPS: a short page
+	# instead of an empty 502. A 503 comes from Caddy when no upstream is
+	# healthy. A 503 that an app sends itself is not an error of Caddy: it does
+	# not come here. The static pages above do not need the apps.
+	handle_errors 502 503 504 {
 		header Retry-After 120
 		respond "This site is down for a moment. Try again in a few minutes." 503
 	}

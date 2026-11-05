@@ -1,5 +1,6 @@
-# hetzner-docker: the Docker stack of the Hetzner VPS (vps-back, site,
-# next-site, sifa-page) and the config of the Caddy of the host.
+# hetzner-docker: the Docker stack of the Hetzner VPS (the standby copies of
+# vps-back and site, sifa-page, Beszel, vmagent) and the config of the Caddy of
+# the host.
 #
 # [local] recipes run on the build machine: build the images, test them, send
 # them to the VPS. The images have the architecture of the build machine: build
@@ -9,14 +10,16 @@
 # machine, or directly on the VPS.
 #
 # The recipes that reach the VPS over SSH read its SSH target from the VPS
-# environment variable (user@host). This public repository does not hold the
-# address.
+# environment variable (user@host). `just standby` also reaches ronron, with
+# the RONRON environment variable. This public repository does not hold the
+# addresses.
 
 # --norc: in an SSH session, `bash -c` reads /etc/bash.bashrc, which fails with
 # -u ("PS1: unbound variable").
 set shell := ["bash", "--norc", "-euo", "pipefail", "-c"]
 
 vps     := env("VPS", "")
+ronron  := env("RONRON", "")
 vps_dir := "hetzner-docker"
 local   := "docker compose -f compose.yaml -f compose.local.yaml"
 
@@ -292,6 +295,37 @@ ship +services: (send services)
         ssh {{vps}} "cd {{vps_dir}} && docker compose up -d --wait$servers && docker compose ps"
     fi
 
+# Put the standby copies of site and vps-back on the commits of ronron, ship them, and copy the static files of vps-back from ronron [local]
+standby: _build-machine _need-vps _need-ronron
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # The standby runs the same commits as ronron. src/ holds mirrors: the
+    # branch moves to the commit of ronron, and the next `just pull` follows
+    # the upstream branch again.
+    for dir in site vps-back; do
+        if [ -n "$(git -C "src/$dir" status --porcelain)" ]; then
+            echo "error: src/$dir has local changes: commit them elsewhere, or drop them" >&2
+            exit 1
+        fi
+        sha=$(ssh {{ronron}} "git -C ronron-docker/src/$dir rev-parse HEAD")
+        git -C "src/$dir" fetch --quiet
+        git -C "src/$dir" reset --hard --quiet "$sha"
+        echo "src/$dir: $(git -C "src/$dir" log --oneline -1)"
+    done
+    "{{just_executable()}}" --justfile "{{justfile()}}" build site vps-back
+    "{{just_executable()}}" --justfile "{{justfile()}}" ship site vps-back
+    # The static files of vps-back (the files of /static/, github-stats.json)
+    # and the fonts of the site come from ronron. On the VPS, root owns their
+    # directories: docker cp and a container as root write into them.
+    ssh {{ronron}} 'tar -C ronron-docker/data/vps-back/static -cf - .' \
+        | ssh {{vps}} 'cd {{vps_dir}} && docker cp - "$(docker compose ps -q vps-back)":/data/static'
+    ssh {{ronron}} 'tar -C ronron-docker/data/fonts -cf - .' \
+        | ssh {{vps}} 'cd {{vps_dir}} && docker run --rm -i --user 0 --entrypoint tar -v "$PWD/data/fonts:/fonts" tomplanche/portfolio:main -x -C /fonts'
+    # The site reads the list of its static files at start-up: a restart makes
+    # it serve the new fonts.
+    ssh {{vps}} 'cd {{vps_dir}} && docker compose restart site && docker compose up -d --wait site'
+    echo "The standby copies of site and vps-back run the commits of ronron, with its files."
+
 # Rebuild sifa-page into /var/www/sifa-page on the VPS [local or vps]
 publish-sifa: _need-vps
     {{on_stack}} 'cd {{stack_dir}} && docker compose run --rm sifa-page'
@@ -428,5 +462,16 @@ _need-vps:
         echo "error: set VPS to the SSH target of the server (user@host)." >&2
         echo "  bash or zsh: export VPS=deploy@203.0.113.10" >&2
         echo "  fish:        set -Ux VPS deploy@203.0.113.10" >&2
+        exit 1
+    fi
+
+# Stop when RONRON is not set: `just standby` reads the commits and the static files of ronron
+[private]
+_need-ronron:
+    #!/usr/bin/env bash
+    if [ -z "{{ronron}}" ]; then
+        echo "error: set RONRON to the SSH target of ronron (user@host, or an alias of ~/.ssh/config)." >&2
+        echo "  bash or zsh: export RONRON=user@ronron" >&2
+        echo "  fish:        set -Ux RONRON user@ronron" >&2
         exit 1
     fi

@@ -1,0 +1,40 @@
+# A snippet, not a site: the reverse_proxy of an app that runs on ronron and
+# has a standby copy on the VPS. The `_` puts this file first in the import of
+# managed/*.caddy: Caddy must read a snippet before a site imports it.
+#
+#   import failover <upstream on ronron> <standby on the VPS> <health path>
+#
+# - lb_policy first: each request goes to ronron while ronron is healthy. It
+#   goes to the standby only when ronron is not healthy.
+# - dial_timeout 2s: when ronron is off, WireGuard sends no error, and a new
+#   connection waits for its timeout. A short timeout sends the request to the
+#   standby after 2 seconds, not after a minute.
+# - response_header_timeout 10s: Caddy keeps its connections to ronron open
+#   between requests. When ronron goes off, a request on such a connection gets
+#   no answer and no error. Without this timeout, it waits until Cloudflare
+#   gives up (100 seconds). The apps answer in much less than 10 seconds.
+# - lb_try_duration 12s: a request that fails on ronron goes to the standby in
+#   the same request, during 12 seconds at most. It must be longer than
+#   response_header_timeout. Caddy always retries a request that it could not
+#   send. After a connection, it retries only a GET, so a POST never goes
+#   twice.
+# - fail_duration 30s: after a failed request, ronron stays out for 30 seconds
+#   (passive health check).
+# - health_uri: Caddy checks each upstream every 10 seconds (active health
+#   check). ronron comes back into use after a good check, and 30 seconds
+#   after its last failure at the earliest. The path must answer 200 without
+#   work: a static file, or a cheap route.
+(failover) {
+	reverse_proxy {args[0]} {args[1]} {
+		lb_policy first
+		lb_try_duration 12s
+		fail_duration 30s
+		health_uri {args[2]}
+		health_interval 10s
+		health_timeout 3s
+		transport http {
+			dial_timeout 2s
+			response_header_timeout 10s
+		}
+	}
+}

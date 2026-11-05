@@ -1,10 +1,14 @@
 # vps-back: the API (port 8000). tomplanche.com/api/* is in site.caddy.
+#
+# vps-back runs on ronron. When ronron does not answer, the standby copy of the
+# VPS (port 8000) answers instead (_failover.caddy).
 api.tomplanche.com {
-	reverse_proxy 10.10.0.4:8100
+	import failover 10.10.0.4:8100 127.0.0.1:8000 /
 
-	# The app does not answer (a restart, or its server is down): a short page
-	# instead of an empty 502.
-	handle_errors 502 504 {
+	# The app does not answer, neither on ronron nor on the VPS: a short page
+	# instead of an empty 502. A 503 comes from Caddy when no upstream is
+	# healthy.
+	handle_errors 502 503 504 {
 		header Retry-After 120
 		respond "This site is down for a moment. Try again in a few minutes." 503
 	}
